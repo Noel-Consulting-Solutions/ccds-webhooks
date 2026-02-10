@@ -59,5 +59,34 @@
         <h1>Email Dismissed</h1>
         <p>You can now close this window.</p>
     </div>
+    <script>
+        // Get all URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const webhookUrl = urlParams.get('webhook_url');
+        
+        if (webhookUrl) {
+            // Build the complete webhook URL with all parameters
+            const params = new URLSearchParams();
+            
+            // Add all parameters except webhook_url
+            for (const [key, value] of urlParams.entries()) {
+                if (key !== 'webhook_url') {
+                    params.append(key, value);
+                }
+            }
+            
+            // Construct final webhook URL
+            const finalWebhookUrl = `${webhookUrl}?${params.toString()}`;
+            
+            // Call the webhook
+            fetch(finalWebhookUrl, {
+                method: 'GET',
+                mode: 'no-cors' // Allow cross-origin request
+            }).catch(error => {
+                // Silently handle errors - webhook likely still fired
+                console.log('Webhook called');
+            });
+        }
+    </script>
 </body>
 </html>
