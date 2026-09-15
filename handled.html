@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
     <title>Mark as Handled</title>
     <style>
         body {
@@ -24,14 +25,8 @@
             max-width: 500px;
         }
         @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateY(-20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            from { opacity: 0; transform: translateY(-20px); }
+            to   { opacity: 1; transform: translateY(0); }
         }
         .icon {
             font-size: 80px;
@@ -66,11 +61,16 @@
             cursor: pointer;
             transition: all 0.2s;
         }
+        button:disabled {
+            opacity: 0.6;
+            cursor: default;
+            transform: none;
+        }
         .confirm-btn {
             background-color: #ffc107;
             color: #333;
         }
-        .confirm-btn:hover {
+        .confirm-btn:hover:not(:disabled) {
             background-color: #e0a800;
             transform: translateY(-2px);
         }
@@ -78,7 +78,7 @@
             background-color: #6c757d;
             color: white;
         }
-        .cancel-btn:hover {
+        .cancel-btn:hover:not(:disabled) {
             background-color: #5a6268;
         }
         .hidden {
@@ -101,13 +101,13 @@
 </head>
 <body>
     <!-- Confirmation Screen -->
-    <div class="container" id="confirmScreen">
+    <div class="container hidden" id="confirmScreen">
         <div class="icon">🔧</div>
         <h1>Mark as Handled?</h1>
         <p>This will update the log to show you handled this email manually.</p>
         <div class="button-group">
-            <button class="confirm-btn" onclick="markHandled()">✅ Confirm</button>
-            <button class="cancel-btn" onclick="window.close()">❌ Cancel</button>
+            <button class="confirm-btn" id="confirmBtn" onclick="markHandled()">✅ Confirm</button>
+            <button class="cancel-btn" id="cancelBtn" onclick="cancelAction()">❌ Cancel</button>
         </div>
     </div>
 
@@ -121,44 +121,92 @@
     <!-- Success Screen -->
     <div class="container hidden" id="successScreen">
         <div class="icon">✅</div>
-        <h1>Marked as Handled</h1>
-        <p>You can now close this window.</p>
+        <h1>Request Received</h1>
+        <p>The log will update shortly. You can close this window.</p>
+    </div>
+
+    <!-- Cancelled Screen -->
+    <div class="container hidden" id="cancelledScreen">
+        <div class="icon">🚫</div>
+        <h1>Cancelled</h1>
+        <p>Nothing was changed. You can close this window.</p>
+    </div>
+
+    <!-- Error Screen -->
+    <div class="container hidden" id="errorScreen">
+        <div class="icon">⚠️</div>
+        <h1>This Link Is Incomplete</h1>
+        <p>Please go back to your briefing email and click the button again. If this keeps happening, contact Thomas.</p>
     </div>
 
     <script>
-        function markHandled() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const webhookUrl = urlParams.get('webhook_url');
-            
-            if (!webhookUrl) {
-                alert('Error: Missing webhook URL');
+        // ---- Configuration ----
+        // The parameter name your email buttons use for the email ID.
+        // Check a real button link in a briefing email and match it here.
+        const REQUIRED_ID_PARAM = 'email_id';
+        // Only ever call webhooks on this host.
+        const ALLOWED_WEBHOOK_HOST = 'hooks.zapier.com';
+
+        const urlParams = new URLSearchParams(window.location.search);
+        let webhookUrl = null;
+        let alreadySent = false;
+
+        function show(screenId) {
+            ['confirmScreen', 'processingScreen', 'successScreen', 'cancelledScreen', 'errorScreen']
+                .forEach(id => document.getElementById(id).classList.add('hidden'));
+            document.getElementById(screenId).classList.remove('hidden');
+        }
+
+        function isAllowedWebhook(url) {
+            try {
+                const parsed = new URL(url);
+                return parsed.protocol === 'https:' && parsed.hostname === ALLOWED_WEBHOOK_HOST;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        // ---- Validate on page load, before showing any buttons ----
+        (function init() {
+            webhookUrl = urlParams.get('webhook_url');
+            const emailId = urlParams.get(REQUIRED_ID_PARAM);
+
+            const hasWebhook = webhookUrl && isAllowedWebhook(webhookUrl);
+            const hasId = emailId && emailId.trim() !== '';
+
+            if (!hasWebhook || !hasId) {
+                show('errorScreen');
                 return;
             }
+            show('confirmScreen');
+        })();
 
-            document.getElementById('confirmScreen').classList.add('hidden');
-            document.getElementById('processingScreen').classList.remove('hidden');
-            
+        function cancelAction() {
+            show('cancelledScreen');
+        }
+
+        function markHandled() {
+            // Guard against double-clicks and re-submits
+            if (alreadySent) return;
+            alreadySent = true;
+            document.getElementById('confirmBtn').disabled = true;
+            document.getElementById('cancelBtn').disabled = true;
+
+            show('processingScreen');
+
+            // Forward every parameter except webhook_url
             const params = new URLSearchParams();
             for (const [key, value] of urlParams.entries()) {
                 if (key !== 'webhook_url') {
                     params.append(key, value);
                 }
             }
-            
+
             const finalWebhookUrl = `${webhookUrl}?${params.toString()}`;
-            
-            fetch(finalWebhookUrl, {
-                method: 'GET',
-                mode: 'no-cors'
-            })
-            .then(() => {
-                document.getElementById('processingScreen').classList.add('hidden');
-                document.getElementById('successScreen').classList.remove('hidden');
-            })
-            .catch(() => {
-                document.getElementById('processingScreen').classList.add('hidden');
-                document.getElementById('successScreen').classList.remove('hidden');
-            });
+
+            fetch(finalWebhookUrl, { method: 'GET', mode: 'no-cors' })
+                .then(() => show('successScreen'))
+                .catch(() => show('successScreen')); // no-cors: response is opaque either way
         }
     </script>
 </body>
